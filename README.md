@@ -23,3 +23,6 @@ Following the ERC-4337 decentralized ecosystem standards, this architecture elim
 * Node operators never front native tokens for transaction gas.
 * Malicious UserOperations cannot drain the ecosystem pool (Anti-Sybil/Parasitic ratio).
 * No protocol-level consensus rule changes are required to deploy.
+
+## Treasury Solvency Guard (New in v3.0.1)
+Aligning with ERC-4337 mainnet invariants, the Paymaster now actively checks `get_pool_balance()` prior to execution. If a transaction's gas cost exceeds the currently accumulated ecosystem tax pool, the transaction is gracefully rejected, preventing the protocol from operating at a deficit.

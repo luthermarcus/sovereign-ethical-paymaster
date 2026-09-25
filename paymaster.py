@@ -3,53 +3,67 @@ import os
 import time
 
 class EthicalPaymaster:
-    def __init__(self, db_path="treasury_metrics.db", tax_bps=150, max_fee_ratio=0.15):
+    def __init__(self, db_path="treasury_metrics.db"):
         self.db_path = db_path
-        self.tax_bps = tax_bps
-        self.max_fee_ratio = max_fee_ratio
+        self.TAX_RATE_BPS = 150
+        self.MAX_FEE_RATIO = 0.15
         self._init_db()
 
     def _init_db(self):
         os.makedirs(os.path.dirname(self.db_path) if '/' in self.db_path else '.', exist_ok=True)
         conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA journal_mode=WAL;")
         cursor = conn.cursor()
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS gas_sponsorship_ledger (
+            CREATE TABLE IF NOT EXISTS paymaster_treasury_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp REAL,
-                sender TEXT,
-                asset_amount REAL,
-                tax_deducted REAL,
+                node_app TEXT,
+                payout_amount REAL,
+                tax_collected REAL,
                 gas_sponsored REAL,
-                execution_status TEXT
+                status TEXT
             )
         ''')
         conn.commit()
         conn.close()
 
-    def evaluate_and_sponsor(self, sender: str, amount: float, gas_cost: float) -> tuple[bool, str, float]:
-        if amount <= 0:
-            return False, "Invalid asset value.", 0.0
-        if gas_cost > (amount * self.max_fee_ratio):
-            self._log(sender, amount, 0.0, 0.0, "REJECTED_PARASITIC_OVERHEAD")
-            return False, f"Fee rejected: gas cost (${gas_cost:.2f}) exceeds {int(self.max_fee_ratio*100)}% ceiling.", amount
-        tax_deducted = (amount * self.tax_bps) / 10000
-        net_received = amount - tax_deducted
-        self._log(sender, amount, tax_deducted, gas_cost, "SPONSORED_APPROVED")
-        return True, "Transaction sponsored successfully via ecosystem tax pool.", net_received
+    def get_pool_balance(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT SUM(tax_collected), SUM(gas_sponsored) FROM paymaster_treasury_log")
+            row = cursor.fetchone()
+            balance = (row[0] or 0.0) - (row[1] or 0.0)
+        except:
+            balance = 0.0
+        conn.close()
+        return balance
 
-    def _log(self, sender, amount, tax, gas, status):
+    def sponsor_withdrawal(self, node_app: str, payout_amount: float, estimated_gas_usd: float) -> tuple[bool, str, float]:
+        if payout_amount <= 0:
+            return False, "Payout amount must be greater than zero.", 0.0
+        if estimated_gas_usd > (payout_amount * self.MAX_FEE_RATIO):
+            self._log(node_app, payout_amount, 0, 0, "REJECTED_PARASITIC_FEE")
+            return False, f"Gas fee (${estimated_gas_usd:.2f}) exceeds 15% threshold.", payout_amount
+        
+        current_pool = self.get_pool_balance()
+        tax_collected = (payout_amount * self.TAX_RATE_BPS) / 10000
+        
+        # FIX: ERC-4337 Deposit Requirement Safeguard
+        if estimated_gas_usd > (current_pool + tax_collected):
+            self._log(node_app, payout_amount, 0, 0, "REJECTED_TREASURY_DEFICIT")
+            return False, f"Insufficient Treasury: Gas (${estimated_gas_usd:.2f}) exceeds pool.", payout_amount
+
+        net_deposit = payout_amount - tax_collected
+        self._log(node_app, payout_amount, tax_collected, estimated_gas_usd, "SPONSORED_SUCCESS")
+        return True, "Approved: Subsidized by sovereign treasury pool.", net_deposit
+
+    def _log(self, node_app, payout, tax, gas, status):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO gas_sponsorship_ledger (timestamp, sender, asset_amount, tax_deducted, gas_sponsored, execution_status)
+            INSERT INTO paymaster_treasury_log (timestamp, node_app, payout_amount, tax_collected, gas_sponsored, status)
             VALUES (?, ?, ?, ?, ?, ?)
-        ''', (time.time(), sender, amount, tax, gas, status))
+        ''', (time.time(), node_app, payout, tax, gas, status))
         conn.commit()
         conn.close()
-
-if __name__ == "__main__":
-    engine = EthicalPaymaster()
-    ok, note, net = engine.evaluate_and_sponsor("0xExternalDevTest", 25.0, 0.75)
-    print(f"[Standalone Test] {note} | Net: ${net:.2f}")
