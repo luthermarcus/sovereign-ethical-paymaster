@@ -14,3 +14,12 @@ A bare-bones, chain-agnostic gas delegation and self-funding treasury engine des
 
 ## Milestones
 * **v3.0.0-stable:** Standalone, zero-dependency release for external blockchain porting.
+
+## Upstream Reconnaissance Engine
+Includes a built-in `recon_engine.py` daemon utilizing Python's native `urllib`. It polls GitHub APIs for critical Account Abstraction infrastructure (e.g., `eth-infinitism/account-abstraction`, `go-ethereum`). It caches data locally in SQLite, flagging `STABLE` releases for immediate integration and `PRE-RELEASE` tags for proactive ERC-4337 compliance prep.
+
+## Community Best Practices
+Following the ERC-4337 decentralized ecosystem standards, this architecture eliminates trust assumptions and ensures that:
+* Node operators never front native tokens for transaction gas.
+* Malicious UserOperations cannot drain the ecosystem pool (Anti-Sybil/Parasitic ratio).
+* No protocol-level consensus rule changes are required to deploy.
